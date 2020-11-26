@@ -1,0 +1,12 @@
+{
+  "name": "signum-server-hls-model",
+  "scripts": {
+    "dev-backend": "echo \"Запуск Backend в режиме разработки\"; nodemon Backend/app.js"
+  },
+  "keywords": [],
+  "dependencies": {
+    "exec": "^0.2.1",
+    "fluent-ffmpeg": "^2.1.2",
+    "nodemon": "^2.0.6"
+  }
+}
