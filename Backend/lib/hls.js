@@ -1,10 +1,7 @@
 const { join } = require('path')
 const fs = require('fs')
 const { exec, spawn } = require('child_process')
-const {
-  getRandomInt,
-  killTree
-} = require(join(__dirname, 'helper'))
+const { getRandomInt, killTree } = require(join(__dirname, 'helper'))
 const FfmpegCommand = require('fluent-ffmpeg')
 
 const DURATION = 2
@@ -14,19 +11,25 @@ const PROBESIZE = 1000000
 const STIMEOUT = 12000000
 const BITRATE = 357564416
 const PATH = join(__dirname, '../.recording')
-const CRF = 23
+const CRF = 18
 const SEGMENT_WRAP = 8
-const SEGMENT_LIST_SIZE = 4
+const SEGMENT_LIST_SIZE = 3
 
-module.exports = class {
+class Hls {
   constructor (cam) {
-    this._camId = cam.id
-    this._src = cam.rtsp
+    this.cam = cam
 
-    this._process = null
+    this._ffmpeg = null
     this.status = false
   }
 
+  /*
+   * Запуск процесса ретрансляции
+   *
+   * Для начала из аругмента options определяются параметры для запуска
+   * процесса ретрансляции. В случае, если каике-то параметры
+   * не были заданы - берется значения по умолчанию
+   */
   run (options = {}) {
     if (!this.status) {
       this._duration = options.duration || DURATION
@@ -39,13 +42,14 @@ module.exports = class {
       this._crf = options.crf || CRF
       this._segmentWrap = options.segmentWrap || SEGMENT_WRAP
       this._segmentListSize = options.segmentListSize || SEGMENT_LIST_SIZE
-      this._segmentListPath = join(this._path, this._camId, 'list.m3u8')
-      this._segmentsPath = join(this._path, this._camId, 's%d.ts')
+      this._segmentListPath = join(this._path, this.cam.id, 'list.m3u8')
+      this._segmentsPath = join(this._path, this.cam.id, 's%d.ts')
 
-      this._genDir()
+      this._mkDir()
 
-      this._process = FfmpegCommand()
-      	.input(this._src)
+      // Конфигурация процесса ретрансляции стрима
+      this._ffmpeg = FfmpegCommand()
+      	.input(this.cam.rtsp)
         .inputFPS(25)
       	.inputFormat('rtsp')
         .addInputOption('-rtsp_transport tcp')
@@ -70,92 +74,84 @@ module.exports = class {
       		'-segment_list_type m3u8'
       	])
       	.output(this._segmentsPath)
-
         .on('start', (cmd) => {
-          // ..
+          this.status = true
         })
         .on('codecData', (data) => {
-          // ..
         })
         .on('progress', (progress) => {
-          // ..
         })
         .on('stderr', (stderrLine) => {
-          // ..
         })
         .on('error', (err, stdout, stderr) => {
           this.status = false
+          this._rmDir()
         })
         .on('end', (stdout, stderr) => {
           this.status = false
+          this._rmDir()
         })
 
-      this._process.run()
-      this.status = true
+      this._ffmpeg.run()
     } else {
       throw 'Процесс уже запущен!'
     }
   }
 
+  /*
+   * Остановка ретрансляции
+   *
+   * Убийство процесса c ретрансляцией. Последующие
+   * действия выполняются после получения сигнала об остановке
+   * самом процессом.
+   */
   stop () {
-    /*
-    if (this.status) {
-      let attempt = 12
-      do {
-          this._process.stdin.pause()
-          this._process.stdout.pause()
-          this._process.stderr.pause()
-          this._process.kill()
-          if (!this._process.killed) {
-            killTree(this._process.pid)
-          }
-
-          if (!attempt--) throw 'Не удалось остановить процесс'
-      } while (!this._process.killed)
-
-      this.status = false
-      this._rmDir()
-    } else {
-      this._rmDir()
-
-      throw new Error('Процесс не был запущен!')
-    }
-    */
+    return this._ffmpeg.ffmpegProc.kill()
   }
 
-  _genDir () {
+  /**
+   * Создание директории для ретрансляции
+   *
+   * Сначала происходит попытка создать директорию для
+   * хранения списка сегментов, далее происходит попытка
+   * создать директорию для самих сегментов.
+   * Если директория уже создана - она удаляется.
+   * Допускается случай, когда эти директории объединены в одну.
+   */
+  _mkDir () {
+    this._rmDir()
     try {
       fs.mkdirSync(join(this._segmentListPath, '..'), {recursive: true})
     } catch(e) {
-      if (e.code !== 'EEXIST') {
-        throw e
-      }
+      if (e.code !== 'EEXIST') throw e
     }
-
     try {
       fs.mkdirSync(join(this._segmentsPath, '..'), {recursive: true})
     } catch(e) {
-      if (e.code !== 'EEXIST') {
-        throw e
-      }
+      if (e.code !== 'EEXIST') throw e
     }
   }
 
+  /**
+   * Удаление директории с ретрансляцией
+   *
+   * Сначала происходит попытка удаления директории, в которой
+   * хранится список сегментов, далее попытка удаления директории
+   * с самими сегментами.
+   * Допускается случай, когда эти директории объединены в одну.
+   */
   _rmDir () {
     try {
       fs.rmdirSync(join(this._segmentListPath, '..'), {recursive: true})
     } catch(e) {
-      if (e.code !== 'ENOENT') {
-        throw e
-      }
+      if (e.code !== 'ENOENT') throw e
     }
-
     try {
       fs.rmdirSync(join(this._segmentsPath, '..'), {recursive: true})
     } catch(e) {
-      if (e.code !== 'ENOENT') {
-        throw e
-      }
+      if (e.code !== 'ENOENT') throw e
     }
   }
 }
+
+module.exports = Hls
