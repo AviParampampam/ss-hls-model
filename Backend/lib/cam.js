@@ -1,7 +1,7 @@
 const { join } = require('path')
 const Hls = require(join(__dirname, 'hls'))
 
-module.exports = class {
+class Camera {
   constructor (options) {
     if (options.id && options.key && options.title && options.rtsp) {
       this.id = options.id
@@ -15,3 +15,5 @@ module.exports = class {
     }
   }
 }
+
+module.exports = Camera
